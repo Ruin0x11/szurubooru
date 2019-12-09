@@ -26,11 +26,15 @@ services:
       #ESEARCH_PORT: 9200
       #ESEARCH_INDEX: szurubooru
       #LOG_SQL: 0 (1 for verbose SQL logs)
+    ports:
+        - "6666:6666"
+    expose:
+        - "6666"
     volumes:
       - "/mnt/hibiki/config/szurubooru/data:/data"
       - "./server/config.yaml:/opt/app/config.yaml"
     networks:
-      - misaka
+      - szuru
   client:
     build:
       context: ./client
@@ -48,6 +52,7 @@ services:
       - "/mnt/hibiki/config/szurubooru/data:/data:ro"
     networks:
       - misaka
+      - szuru
   sql:
     image: postgres:11-alpine
     restart: always
@@ -57,7 +62,7 @@ services:
     volumes:
       - "/mnt/hibiki/config/szurubooru/sql:/var/lib/postgresql/data"
     networks:
-      - misaka
+      - szuru
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.3.1
     restart: always
@@ -74,7 +79,7 @@ services:
         soft: 65536
         hard: 65536
     networks:
-      - misaka
+      - szuru
 
 volumes:
   index: # Scratch space for ElasticSearch index, will be rebuilt if lost
@@ -82,3 +87,5 @@ volumes:
 networks:
   misaka:
     external: true
+  szuru:
+    driver: bridge
