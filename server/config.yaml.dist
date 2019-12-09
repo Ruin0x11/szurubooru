@@ -7,10 +7,8 @@ name: szurubooru
 domain: # example: http://example.com
 # user agent name used to download files from the web on behalf of the api users
 user_agent:
-# used to salt the users' password hashes
+# used to salt the users' password hashes and generate filenames for static content
 secret: change
-# required for running the test suite
-test_database: 'sqlite:///:memory:'
 
 # Delete thumbnails and source files on post delete
 # Original functionality is no, to mitigate the impacts of admins going
@@ -146,3 +144,5 @@ privileges:
 #    host: localhost
 #    port: 9200
 #    index: szurubooru
+#    user: szurubooru
+#    pass:

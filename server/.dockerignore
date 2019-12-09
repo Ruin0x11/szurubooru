@@ -1,7 +1,15 @@
-**/.gitignore
-.dockerignore
+# Linter configs
 .pylintrc
-Dockerfile
-config.yaml
 mypy.ini
-setup.cfg
+
+# Python requirements files
+requirements.txt
+dev-requirements.txt
+
+# Docker build files
+Dockerfile
+.dockerignore
+hooks/
+
+# User configured config file
+config.yaml

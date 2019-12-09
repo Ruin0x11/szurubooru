@@ -1,49 +1,57 @@
-FROM busybox as approot
-
-COPY . /opt/app/
-RUN \
-    # Remove unit tests from production release
-    rm -rf /opt/app/szurubooru/tests && \
-    # Remove requirements files, will be added later
-    rm -f /opt/app/requirements.txt && \
-    rm -f /opt/app/dev-requirements.txt
-
-
-FROM python:3.6-slim
+FROM alpine:latest
 WORKDIR /opt/app
+
+RUN \
+    apk --no-cache add \
+        python3 \
+        dumb-init \
+        ffmpeg \
+        py3-waitress \
+        # from requirements.txt:
+        py3-yaml \
+        py3-psycopg2 \
+        py3-sqlalchemy \
+        py3-certifi \
+        py3-numpy \
+        py3-pillow \
+        py3-pynacl \
+        py3-tz \
+        py3-rfc3339 \
+    && \
+    pip3 install --no-cache-dir --disable-pip-version-check \
+        alembic \
+        "coloredlogs==5.0" \
+        "elasticsearch>=5.0.0,<7.0.0" \
+        "elasticsearch-dsl>=5.0.0,<7.0.0" \
+    && exit 0
 
 ARG PUID=1000
 ARG PGID=1000
-ARG PORT=6666
 RUN \
     # Set users
     mkdir -p /opt/app /data && \
-    groupadd -g ${PGID} app && \
-    useradd -d /opt/app -M -c '' -g app -r -u ${PUID} app && \
-    chown -R app:app /opt/app /data && \
-    # Create init file
-    echo "#!/bin/sh" >> /init && \
-    echo "set -e" >> /init && \
-    echo "cd /opt/app" >> /init && \
-    echo "./wait-for-es" >> /init && \
-    echo "alembic upgrade head" >> /init && \
-    echo "exec waitress-serve --port ${PORT} szurubooru.facade:app" \
-        >> /init && \
-    chmod a+x /init && \
-    # Install ffmpeg
-    apt-get -yqq update && \
-    apt-get -yq install --no-install-recommends ffmpeg && \
-    rm -rf /var/lib/apt/lists/* && \
-    # Install waitress
-    pip3 install --no-cache-dir waitress
-
-COPY --chown=app:app requirements.txt ./requirements.txt
-RUN pip3 install --no-cache-dir -r ./requirements.txt
-
-# done to minimize number of layers in final image
-COPY --chown=app:app --from=approot /opt/app /opt/app/
-
-VOLUME ["/data/"]
-EXPOSE ${PORT}
+    addgroup -g ${PGID} app && \
+    adduser -SDH -h /opt/app -g '' -G app -u ${PUID} app && \
+    chown -R app:app /opt/app /data
 USER app
-CMD ["/init"]
+
+COPY --chown=app:app ./ /opt/app/
+
+ARG PORT=6666
+ENV PORT=${PORT}
+EXPOSE ${PORT}
+VOLUME ["/data/"]
+CMD ["/opt/app/docker-start.sh"]
+
+ARG DOCKER_REPO
+ARG BUILD_DATE
+ARG SOURCE_COMMIT
+LABEL \
+    maintainer="" \
+    org.opencontainers.image.title="${DOCKER_REPO}" \
+    org.opencontainers.image.url="https://github.com/rr-/szurubooru" \
+    org.opencontainers.image.documentation="https://github.com/rr-/szurubooru/blob/${SOURCE_COMMIT}/doc/INSTALL.md" \
+    org.opencontainers.image.created="${BUILD_DATE}" \
+    org.opencontainers.image.source="https://github.com/rr-/szurubooru" \
+    org.opencontainers.image.revision="${SOURCE_COMMIT}" \
+    org.opencontainers.image.licenses="GPL-3.0"
