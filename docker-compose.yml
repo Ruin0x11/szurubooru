@@ -46,6 +46,7 @@ services:
     environment:
       BACKEND_HOST: api
       BASE_URL:
+      # VIRTUAL_HOST: bijutsu.nori.daikon
       VIRTUAL_HOST: bijutsu.nori.moe
       LETSENCRYPT_HOST: bijutsu.nori.moe
     volumes:
@@ -72,6 +73,8 @@ services:
       ##  https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html
       ## for more info
       ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+        - "5008:5000"
     volumes:
       - index:/usr/share/elasticsearch/data
     ulimits:
@@ -79,6 +82,21 @@ services:
         soft: 65536
         hard: 65536
     networks:
+      - szuru
+  evergarden:
+    image: localhost:5000/evergarden
+    depends_on:
+      - api
+    restart: always
+    expose:
+        - "5000"
+    environment:
+      SZURUBOORU_HOST: http://client
+      EXTERNAL_SZURUBOORU_HOST: http://bijutsu.nori.moe
+      VIRTUAL_HOST: evergarden.nori.daikon
+      VIRTUAL_PORT: 5000
+    networks:
+      - misaka
       - szuru
 
 volumes:
