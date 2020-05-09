@@ -11,37 +11,6 @@ import sqlalchemy as sa
 from szurubooru import config, db, model, rest
 
 
-class QueryCounter:
-    def __init__(self):
-        self._statements = []
-
-    def __enter__(self):
-        self._statements = []
-
-    def __exit__(self, *args, **kwargs):
-        self._statements = []
-
-    def create_before_cursor_execute(self):
-        def before_cursor_execute(
-                _conn, _cursor, statement, _params, _context, _executemany):
-            self._statements.append(statement)
-        return before_cursor_execute
-
-    @property
-    def statements(self):
-        return self._statements
-
-
-_query_counter = QueryCounter()
-_engine = sa.create_engine('sqlite:///:memory:')
-model.Base.metadata.drop_all(bind=_engine)
-model.Base.metadata.create_all(bind=_engine)
-sa.event.listen(
-    _engine,
-    'before_cursor_execute',
-    _query_counter.create_before_cursor_execute())
-
-
 def get_unique_name():
     alphabet = string.ascii_letters + string.digits
     return ''.join(random.choice(alphabet) for _ in range(8))
@@ -58,11 +27,6 @@ def fake_datetime():
     return injector
 
 
-@pytest.fixture()
-def query_counter():
-    return _query_counter
-
-
 @pytest.fixture(scope='session')
 def query_logger(pytestconfig):
     if pytestconfig.option.verbose > 0:
@@ -75,17 +39,13 @@ def query_logger(pytestconfig):
 
 
 @pytest.yield_fixture(scope='function', autouse=True)
-def session(query_logger):  # pylint: disable=unused-argument
-    db.sessionmaker = sa.orm.sessionmaker(
-        bind=_engine, autoflush=False)
-    db.session = sa.orm.scoped_session(db.sessionmaker)
+def session(query_logger, postgresql_db):  # pylint: disable=unused-argument
+    db.session = postgresql_db.session
+    postgresql_db.create_table(*model.Base.metadata.sorted_tables)
     try:
-        yield db.session
+        yield postgresql_db.session
     finally:
-        db.session.remove()
-        for table in reversed(model.Base.metadata.sorted_tables):
-            db.session.execute(table.delete())
-        db.session.commit()
+        postgresql_db.reset_db()
 
 
 @pytest.fixture
@@ -179,15 +139,8 @@ def tag_factory():
     return factory
 
 
-@pytest.yield_fixture
-def skip_post_hashing():
-    with patch('szurubooru.func.image_hash.add_image'), \
-            patch('szurubooru.func.image_hash.delete_image'):
-        yield
-
-
 @pytest.fixture
-def post_factory(skip_post_hashing):
+def post_factory():
     # pylint: disable=invalid-name
     def factory(
             id=None,
@@ -245,6 +198,52 @@ def post_favorite_factory(user_factory, post_factory):
             post = post_factory()
         return model.PostFavorite(
             post=post, user=user, time=datetime(1999, 1, 1))
+    return factory
+
+
+@pytest.fixture
+def pool_category_factory():
+    def factory(name=None, color='dummy', default=False):
+        category = model.PoolCategory()
+        category.name = name or get_unique_name()
+        category.color = color
+        category.default = default
+        return category
+    return factory
+
+
+@pytest.fixture
+def pool_factory():
+    def factory(id=None, names=None, description=None, category=None, time=None):
+        if not category:
+            category = model.PoolCategory(get_unique_name())
+            db.session.add(category)
+        pool = model.Pool()
+        pool.pool_id = id
+        pool.names = []
+        for i, name in enumerate(names or [get_unique_name()]):
+            pool.names.append(model.PoolName(name, i))
+        pool.description = description
+        pool.category = category
+        pool.creation_time = time or datetime(1996, 1, 1)
+        return pool
+    return factory
+
+
+@pytest.fixture
+def pool_post_factory(pool_factory, post_factory):
+    def factory(pool=None, post=None, order=None):
+        if not pool:
+            pool = pool_factory()
+            db.session.add(pool)
+        if not post:
+            post = post_factory()
+            db.session.add(post)
+        pool_post = model.PoolPost(post)
+        pool_post.pool = pool
+        pool_post.post = post
+        pool_post.order = order or 0
+        return pool_post
     return factory
 
 

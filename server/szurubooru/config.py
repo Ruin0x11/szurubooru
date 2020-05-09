@@ -1,7 +1,11 @@
 from typing import Dict
+import logging
 import os
 import yaml
 from szurubooru import errors
+
+
+logger = logging.getLogger(__name__)
 
 
 def _merge(left: Dict, right: Dict) -> Dict:
@@ -17,12 +21,7 @@ def _merge(left: Dict, right: Dict) -> Dict:
 
 
 def _docker_config() -> Dict:
-    for key in [
-            'POSTGRES_USER',
-            'POSTGRES_PASSWORD',
-            'POSTGRES_HOST',
-            'ESEARCH_HOST'
-    ]:
+    for key in ['POSTGRES_USER', 'POSTGRES_PASSWORD', 'POSTGRES_HOST']:
         if not os.getenv(key, False):
             raise errors.ConfigError(f'Environment variable "{key}" not set')
     return {
@@ -36,26 +35,22 @@ def _docker_config() -> Dict:
             'host': os.getenv('POSTGRES_HOST'),
             'port': int(os.getenv('POSTGRES_PORT', 5432)),
             'db': os.getenv('POSTGRES_DB', os.getenv('POSTGRES_USER'))
-        },
-        'elasticsearch': {
-            'host': os.getenv('ESEARCH_HOST'),
-            'port': int(os.getenv('ESEARCH_PORT', 9200)),
-            'index': os.getenv('ESEARCH_INDEX', 'szurubooru'),
-            'user': os.getenv('ESEARCH_USER', os.getenv('ESEARCH_INDEX', 'szurubooru')),
-            'pass': os.getenv('ESEARCH_PASSWORD', False)
         }
     }
 
 
 def _file_config(filename: str) -> Dict:
     with open(filename) as handle:
-        return yaml.load(handle.read(), Loader=yaml.SafeLoader)
+        return yaml.load(handle.read(), Loader=yaml.SafeLoader) or {}
 
 
 def _read_config() -> Dict:
     ret = _file_config('config.yaml.dist')
-    if os.path.exists('config.yaml'):
+    if os.path.isfile('config.yaml'):
         ret = _merge(ret, _file_config('config.yaml'))
+    elif os.path.isdir('config.yaml'):
+        logger.warning(
+            '\'config.yaml\' should be a file, not a directory, skipping')
     if os.path.exists('/.dockerenv'):
         ret = _merge(ret, _docker_config())
     return ret

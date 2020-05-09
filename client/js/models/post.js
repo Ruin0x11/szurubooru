@@ -7,6 +7,8 @@ const events = require('../events.js');
 const TagList = require('./tag_list.js');
 const NoteList = require('./note_list.js');
 const CommentList = require('./comment_list.js');
+const PoolList = require('./pool_list.js');
+const Pool = require('./pool.js');
 const misc = require('../util/misc.js');
 
 class Post extends events.EventTarget {
@@ -18,6 +20,7 @@ class Post extends events.EventTarget {
             obj._tags = new TagList();
             obj._notes = new NoteList();
             obj._comments = new CommentList();
+            obj._pools = new PoolList();
         }
 
         this._updateFromResponse({});
@@ -46,6 +49,7 @@ class Post extends events.EventTarget {
     get notes()              { return this._notes; }
     get comments()           { return this._comments; }
     get relations()          { return this._relations; }
+    get pools()              { return this._pools; }
 
     get score()              { return this._score; }
     get commentCount()       { return this._commentCount; }
@@ -93,6 +97,43 @@ class Post extends events.EventTarget {
             });
     }
 
+    _savePoolPosts() {
+        const difference = (a, b) => a.filter(post => !b.hasPoolId(post.id));
+
+        // find the pools where the post was added or removed
+        const added = difference(this.pools, this._orig._pools);
+        const removed = difference(this._orig._pools, this.pools);
+
+        let ops = [];
+
+        // update each pool's list of posts
+        for (let pool of added) {
+            let op = Pool.get(pool.id).then(response => {
+                if (!response.posts.hasPostId(this._id)) {
+                    response.posts.addById(this._id);
+                    return response.save();
+                } else {
+                    return Promise.resolve(response);
+                }
+            });
+            ops.push(op);
+        }
+
+        for (let pool of removed) {
+            let op = Pool.get(pool.id).then(response => {
+                if (response.posts.hasPostId(this._id)) {
+                    response.posts.removeById(this._id);
+                    return response.save();
+                } else {
+                    return Promise.resolve(response);
+                }
+            });
+            ops.push(op);
+        }
+
+        return Promise.all(ops);
+    }
+
     save(anonymous) {
         const files = {};
         const detail = {version: this._version};
@@ -130,27 +171,34 @@ class Post extends events.EventTarget {
         }
 
         let apiPromise = this._id ?
-            api.put(uri.formatApiLink('post', this.id), detail, files) :
-            api.post(uri.formatApiLink('posts'), detail, files);
+                         api.put(uri.formatApiLink('post', this.id), detail, files) :
+                         api.post(uri.formatApiLink('posts'), detail, files);
 
         return apiPromise.then(response => {
+            if (misc.arraysDiffer(this._pools, this._orig._pools)) {
+                return this._savePoolPosts()
+                           .then(() => Promise.resolve(response));
+            }
+            return Promise.resolve(response);
+        }).then(response => {
             this._updateFromResponse(response);
             this.dispatchEvent(
-                new CustomEvent('change', {detail: {post: this}}));
+              new CustomEvent('change', {detail: {post: this}}));
             if (this._newContent) {
                 this.dispatchEvent(
-                    new CustomEvent('changeContent', {detail: {post: this}}));
+                  new CustomEvent('changeContent', {detail: {post: this}}));
             }
             if (this._newThumbnail) {
                 this.dispatchEvent(
-                    new CustomEvent('changeThumbnail', {detail: {post: this}}));
+                  new CustomEvent('changeThumbnail', {detail: {post: this}}));
             }
+
             return Promise.resolve();
         }, error => {
             if (error.response &&
-                    error.response.name === 'PostAlreadyUploadedError') {
+                error.response.name === 'PostAlreadyUploadedError') {
                 error.message =
-                    `Post already uploaded (@${error.response.otherPostId})`;
+                  `Post already uploaded (@${error.response.otherPostId})`;
             }
             return Promise.reject(error);
         });
@@ -158,118 +206,118 @@ class Post extends events.EventTarget {
 
     feature() {
         return api.post(
-                uri.formatApiLink('featured-post'),
-                {id: this._id})
-            .then(response => {
-                return Promise.resolve();
-            });
+          uri.formatApiLink('featured-post'),
+          {id: this._id})
+                  .then(response => {
+                    return Promise.resolve();
+                });
     }
 
     delete() {
         return api.delete(
-                uri.formatApiLink('post', this.id),
-                {version: this._version})
-            .then(response => {
-                this.dispatchEvent(new CustomEvent('delete', {
-                    detail: {
-                        post: this,
-                    },
-                }));
-                return Promise.resolve();
-            });
+          uri.formatApiLink('post', this.id),
+          {version: this._version})
+                  .then(response => {
+                    this.dispatchEvent(new CustomEvent('delete', {
+                        detail: {
+                            post: this,
+                        },
+                    }));
+                    return Promise.resolve();
+                });
     }
 
     merge(targetId, useOldContent) {
         return api.get(uri.formatApiLink('post', targetId))
-            .then(response => {
-                return api.post(uri.formatApiLink('post-merge'), {
-                    removeVersion: this._version,
-                    remove: this._id,
-                    mergeToVersion: response.version,
-                    mergeTo: targetId,
-                    replaceContent: useOldContent,
+                  .then(response => {
+                    return api.post(uri.formatApiLink('post-merge'), {
+                        removeVersion: this._version,
+                        remove: this._id,
+                        mergeToVersion: response.version,
+                        mergeTo: targetId,
+                        replaceContent: useOldContent,
+                    });
+                }).then(response => {
+                    this._updateFromResponse(response);
+                    this.dispatchEvent(new CustomEvent('change', {
+                        detail: {
+                            post: this,
+                        },
+                    }));
+                    return Promise.resolve();
                 });
-            }).then(response => {
-                this._updateFromResponse(response);
-                this.dispatchEvent(new CustomEvent('change', {
-                    detail: {
-                        post: this,
-                    },
-                }));
-                return Promise.resolve();
-            });
     }
 
     setScore(score) {
         return api.put(
-                uri.formatApiLink('post', this.id, 'score'),
-                {score: score})
-            .then(response => {
-                const prevFavorite = this._ownFavorite;
-                this._updateFromResponse(response);
-                if (this._ownFavorite !== prevFavorite) {
+          uri.formatApiLink('post', this.id, 'score'),
+          {score: score})
+                  .then(response => {
+                    const prevFavorite = this._ownFavorite;
+                    this._updateFromResponse(response);
+                    if (this._ownFavorite !== prevFavorite) {
+                        this.dispatchEvent(new CustomEvent('changeFavorite', {
+                            detail: {
+                                post: this,
+                            },
+                        }));
+                    }
+                    this.dispatchEvent(new CustomEvent('changeScore', {
+                        detail: {
+                            post: this,
+                        },
+                    }));
+                    return Promise.resolve();
+                });
+    }
+
+    addToFavorites() {
+        return api.post(uri.formatApiLink('post', this.id, 'favorite'))
+                  .then(response => {
+                    const prevScore = this._ownScore;
+                    this._updateFromResponse(response);
+                    if (this._ownScore !== prevScore) {
+                        this.dispatchEvent(new CustomEvent('changeScore', {
+                            detail: {
+                                post: this,
+                            },
+                        }));
+                    }
                     this.dispatchEvent(new CustomEvent('changeFavorite', {
                         detail: {
                             post: this,
                         },
                     }));
-                }
-                this.dispatchEvent(new CustomEvent('changeScore', {
-                    detail: {
-                        post: this,
-                    },
-                }));
-                return Promise.resolve();
-            });
-    }
-
-    addToFavorites() {
-        return api.post(uri.formatApiLink('post', this.id, 'favorite'))
-            .then(response => {
-                const prevScore = this._ownScore;
-                this._updateFromResponse(response);
-                if (this._ownScore !== prevScore) {
-                    this.dispatchEvent(new CustomEvent('changeScore', {
-                        detail: {
-                            post: this,
-                        },
-                    }));
-                }
-                this.dispatchEvent(new CustomEvent('changeFavorite', {
-                    detail: {
-                        post: this,
-                    },
-                }));
-                return Promise.resolve();
-            });
+                    return Promise.resolve();
+                });
     }
 
     removeFromFavorites() {
         return api.delete(uri.formatApiLink('post', this.id, 'favorite'))
-            .then(response => {
-                const prevScore = this._ownScore;
-                this._updateFromResponse(response);
-                if (this._ownScore !== prevScore) {
-                    this.dispatchEvent(new CustomEvent('changeScore', {
+                  .then(response => {
+                    const prevScore = this._ownScore;
+                    this._updateFromResponse(response);
+                    if (this._ownScore !== prevScore) {
+                        this.dispatchEvent(new CustomEvent('changeScore', {
+                            detail: {
+                                post: this,
+                            },
+                        }));
+                    }
+                    this.dispatchEvent(new CustomEvent('changeFavorite', {
                         detail: {
                             post: this,
                         },
                     }));
-                }
-                this.dispatchEvent(new CustomEvent('changeFavorite', {
-                    detail: {
-                        post: this,
-                    },
-                }));
-                return Promise.resolve();
-            });
+                    return Promise.resolve();
+                });
     }
 
     mutateContentUrl() {
         this._contentUrl =
-            this._orig._contentUrl +
-            '?bypass-cache=' +
-            Math.round(Math.random() * 1000);
+          this._orig._contentUrl +
+          '?bypass-cache=' +
+          Math.round(Math.random() * 1000);
     }
 
     _updateFromResponse(response) {
@@ -304,6 +352,7 @@ class Post extends events.EventTarget {
             obj._tags.sync(response.tags);
             obj._notes.sync(response.notes);
             obj._comments.sync(response.comments);
+            obj._pools.sync(response.pools);
         }
 
         Object.assign(this, map());

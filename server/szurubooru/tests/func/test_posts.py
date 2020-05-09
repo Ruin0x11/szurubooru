@@ -79,6 +79,8 @@ def test_serialize_post(
         comment_factory,
         tag_factory,
         tag_category_factory,
+        pool_factory,
+        pool_category_factory,
         config_injector):
     config_injector({'data_url': 'http://example.com/', 'secret': 'test'})
     with patch('szurubooru.func.comments.serialize_comment'), \
@@ -150,6 +152,23 @@ def test_serialize_post(
                 time=datetime(1800, 1, 1))])
         db.session.flush()
 
+        pool1 = pool_factory(id=1,
+                             names=['pool1', 'pool2'],
+                             description='desc',
+                             category=pool_category_factory('test-cat1'))
+        pool1.last_edit_time = datetime(1998, 1, 1)
+        pool1.posts.append(post)
+
+        pool2 = pool_factory(id=2,
+                             names=['pool3'],
+                             description='desc2',
+                             category=pool_category_factory('test-cat2'))
+        pool2.last_edit_time = datetime(1998, 1, 1)
+        pool2.posts.append(post)
+
+        db.session.add_all([pool1, pool2])
+        db.session.flush()
+
         result = posts.serialize_post(post, auth_user)
         result['tags'].sort(key=lambda tag: tag['names'][0])
 
@@ -183,6 +202,40 @@ def test_serialize_post(
             ],
             'relations': [],
             'notes': [],
+            'pools': [
+                {
+                    'id': 1,
+                    'names': ['pool1', 'pool2'],
+                    'description': 'desc',
+                    'category': 'test-cat1',
+                    'postCount': 1,
+                    'posts': [
+                        {
+                            'id': 1,
+                            'thumbnailUrl': 'http://example.com/generated-thumbnails/1_244c8840887984c4.jpg',
+                        }
+                    ],
+                    'version': 1,
+                    'creationTime': datetime(1996, 1, 1),
+                    'lastEditTime': datetime(1998, 1, 1),
+                },
+                {
+                    'id': 2,
+                    'names': ['pool3'],
+                    'description': 'desc2',
+                    'category': 'test-cat2',
+                    'postCount': 1,
+                    'posts': [
+                        {
+                            'id': 1,
+                            'thumbnailUrl': 'http://example.com/generated-thumbnails/1_244c8840887984c4.jpg',
+                        }
+                    ],
+                    'version': 1,
+                    'creationTime': datetime(1996, 1, 1),
+                    'lastEditTime': datetime(1998, 1, 1),
+                }
+            ],
             'user': 'post author',
             'score': 1,
             'ownFavorite': False,
@@ -354,6 +407,7 @@ def test_update_post_content_for_new_post(
                 'post_height': 300,
             },
             'secret': 'test',
+            'allow_broken_uploads': False,
         })
         output_file_path = '{}/data/posts/{}'.format(tmpdir, output_file_name)
         post = post_factory(id=1)
@@ -371,11 +425,9 @@ def test_update_post_content_for_new_post(
         assert post.checksum == 'crc'
         assert os.path.exists(output_file_path)
         if post.type in (model.Post.TYPE_IMAGE, model.Post.TYPE_ANIMATION):
-            image_hash.delete_image.assert_called_once_with(post.post_id)
-            image_hash.add_image.assert_called_once_with(post.post_id, content)
+            assert db.session.query(model.PostSignature).count() == 1
         else:
-            image_hash.delete_image.assert_not_called()
-            image_hash.add_image.assert_not_called()
+            assert db.session.query(model.PostSignature).count() == 0
 
 
 def test_update_post_content_to_existing_content(
@@ -388,6 +440,7 @@ def test_update_post_content_to_existing_content(
             'post_height': 300,
         },
         'secret': 'test',
+        'allow_broken_uploads': False,
     })
     post = post_factory()
     another_post = post_factory()
@@ -398,8 +451,10 @@ def test_update_post_content_to_existing_content(
         posts.update_post_content(another_post, read_asset('png.png'))
 
 
+@pytest.mark.parametrize('allow_broken_uploads', [True, False])
 def test_update_post_content_with_broken_content(
-        tmpdir, config_injector, post_factory, read_asset):
+        tmpdir, config_injector, post_factory, read_asset,
+        allow_broken_uploads):
     # the rationale behind this behavior is to salvage user upload even if the
     # server software thinks it's broken. chances are the server is wrong,
     # especially about flash movies.
@@ -410,18 +465,28 @@ def test_update_post_content_with_broken_content(
             'post_height': 300,
         },
         'secret': 'test',
+        'allow_broken_uploads': allow_broken_uploads,
     })
     post = post_factory()
     another_post = post_factory()
     db.session.add_all([post, another_post])
-    posts.update_post_content(post, read_asset('png-broken.png'))
-    db.session.flush()
-    assert post.canvas_width is None
-    assert post.canvas_height is None
+    if allow_broken_uploads:
+        posts.update_post_content(post, read_asset('png-broken.png'))
+        db.session.flush()
+        assert post.canvas_width is None
+        assert post.canvas_height is None
+    else:
+        with pytest.raises(posts.InvalidPostContentError):
+            posts.update_post_content(post, read_asset('png-broken.png'))
+        db.session.flush()
 
 
 @pytest.mark.parametrize('input_content', [None, b'not a media file'])
-def test_update_post_content_with_invalid_content(input_content):
+def test_update_post_content_with_invalid_content(
+        config_injector, input_content):
+    config_injector({
+        'allow_broken_uploads': True,
+    })
     post = model.Post()
     with pytest.raises(posts.InvalidPostContentError):
         posts.update_post_content(post, input_content)
@@ -437,6 +502,7 @@ def test_update_post_thumbnail_to_new_one(
             'post_height': 300,
         },
         'secret': 'test',
+        'allow_broken_uploads': False,
     })
     post = post_factory(id=1)
     db.session.add(post)
@@ -472,6 +538,7 @@ def test_update_post_thumbnail_to_default(
             'post_height': 300,
         },
         'secret': 'test',
+        'allow_broken_uploads': False,
     })
     post = post_factory(id=1)
     db.session.add(post)
@@ -506,6 +573,7 @@ def test_update_post_thumbnail_with_broken_thumbnail(
             'post_height': 300,
         },
         'secret': 'test',
+        'allow_broken_uploads': False,
     })
     post = post_factory(id=1)
     db.session.add(post)
@@ -544,6 +612,7 @@ def test_update_post_content_leaving_custom_thumbnail(
             'post_height': 300,
         },
         'secret': 'test',
+        'allow_broken_uploads': False,
     })
     post = post_factory(id=1)
     db.session.add(post)
@@ -964,3 +1033,19 @@ def test_merge_posts_replaces_content(
     assert os.path.exists(source_path)
     assert os.path.exists(target_path1)
     assert not os.path.exists(target_path2)
+
+
+def test_search_by_image(post_factory, config_injector, read_asset):
+    config_injector({'allow_broken_uploads': False})
+    post = post_factory()
+    posts.generate_post_signature(post, read_asset('jpeg.jpg'))
+    db.session.flush()
+
+    result1 = posts.search_by_image(read_asset('jpeg-similar.jpg'))
+    assert len(result1) == 1
+    result1_distance, result1_post = result1[0]
+    assert abs(result1_distance - 0.20599895341812172) < 1e-8
+    assert result1_post.post_id == post.post_id
+
+    result2 = posts.search_by_image(read_asset('png.png'))
+    assert not result2

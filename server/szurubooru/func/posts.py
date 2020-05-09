@@ -1,11 +1,15 @@
+import logging
 import hmac
 from typing import Any, Optional, Tuple, List, Dict, Callable
 from datetime import datetime
 import sqlalchemy as sa
 from szurubooru import config, db, model, errors, rest
 from szurubooru.func import (
-    users, scores, comments, tags, util,
+    users, scores, comments, tags, pools, util,
     mime, images, files, image_hash, serialization, snapshots)
+
+
+logger = logging.getLogger(__name__)
 
 
 EMPTY_PIXEL = (
@@ -58,12 +62,6 @@ class InvalidPostNoteError(errors.ValidationError):
 
 class InvalidPostFlagError(errors.ValidationError):
     pass
-
-
-class PostLookalike(image_hash.Lookalike):
-    def __init__(self, score: int, distance: float, post: model.Post) -> None:
-        super().__init__(score, distance, post.post_id)
-        self.post = post
 
 
 SAFETY_MAP = {
@@ -178,6 +176,7 @@ class PostSerializer(serialization.BaseSerializer):
             'hasCustomThumbnail': self.serialize_has_custom_thumbnail,
             'notes': self.serialize_notes,
             'comments': self.serialize_comments,
+            'pools': self.serialize_pools,
         }
 
     def serialize_id(self) -> Any:
@@ -301,6 +300,14 @@ class PostSerializer(serialization.BaseSerializer):
                 self.post.comments,
                 key=lambda comment: comment.creation_time)]
 
+    def serialize_pools(self) -> Any:
+        return [
+            pools.serialize_pool(pool)
+            for pool in sorted(
+                self.post.pools,
+                key=lambda pool: pool.creation_time)]
+
+
 
 def serialize_post(
         post: Optional[model.Post],
@@ -336,6 +343,22 @@ def get_post_by_id(post_id: int) -> model.Post:
     return post
 
 
+def get_posts_by_ids(ids: List[int]) -> List[model.Pool]:
+    if len(ids) == 0:
+        return []
+    posts = (
+        db.session.query(model.Post)
+        .filter(
+            sa.sql.or_(
+                model.Post.post_id == post_id
+                for post_id in ids))
+        .all())
+    id_order = {
+        v: k for k, v in enumerate(ids)
+    }
+    return sorted(posts, key=lambda post: id_order.get(post.post_id))
+
+
 def try_get_current_post_feature() -> Optional[model.PostFeature]:
     return (
         db.session
@@ -362,10 +385,11 @@ def create_post(
     post.type = ''
     post.checksum = ''
     post.mime_type = ''
-    db.session.add(post)
 
     update_post_content(post, content)
     new_tags = update_post_tags(post, tag_names)
+
+    db.session.add(post)
     return post, new_tags
 
 
@@ -401,7 +425,6 @@ def _after_post_update(
 def _before_post_delete(
         _mapper: Any, _connection: Any, post: model.Post) -> None:
     if post.post_id:
-        image_hash.delete_image(post.post_id)
         if config.config['delete_source_files']:
             files.delete(get_post_content_path(post))
             files.delete(get_post_thumbnail_path(post))
@@ -415,10 +438,6 @@ def _sync_post_content(post: model.Post) -> None:
         files.save(get_post_content_path(post), content)
         delattr(post, '__content')
         regenerate_thumb = True
-        if post.post_id and post.type in (
-                model.Post.TYPE_IMAGE, model.Post.TYPE_ANIMATION):
-            image_hash.delete_image(post.post_id)
-            image_hash.add_image(post.post_id, content)
 
     if hasattr(post, '__thumbnail'):
         if getattr(post, '__thumbnail'):
@@ -473,25 +492,68 @@ def generate_alternate_formats(post: model.Post, content: bytes) \
     return new_posts
 
 
-def test_sound(post: model.Post, content: bytes) -> None:
-    assert post
+def get_default_flags(content: bytes) -> List[str]:
     assert content
+    ret = []
     if mime.is_video(mime.get_mime_type(content)):
+        ret.append(model.Post.FLAG_LOOP)
         if images.Image(content).check_for_sound():
-            flags = post.flags
-            if model.Post.FLAG_SOUND not in flags:
-                flags.append(model.Post.FLAG_SOUND)
-            update_post_flags(post, flags)
+            ret.append(model.Post.FLAG_SOUND)
+    return ret
+
+
+def purge_post_signature(post: model.Post) -> None:
+    (db.session
+        .query(model.PostSignature)
+        .filter(model.PostSignature.post_id == post.post_id)
+        .delete())
+
+
+def generate_post_signature(post: model.Post, content: bytes) -> None:
+    try:
+        unpacked_signature = image_hash.generate_signature(content)
+        packed_signature = image_hash.pack_signature(unpacked_signature)
+        words = image_hash.generate_words(unpacked_signature)
+
+        db.session.add(model.PostSignature(
+            post=post, signature=packed_signature, words=words))
+    except errors.ProcessingError:
+        if not config.config['allow_broken_uploads']:
+            raise InvalidPostContentError(
+                'Unable to generate image hash data.')
+
+
+def update_all_post_signatures() -> None:
+    posts_to_hash = (
+        db.session
+        .query(model.Post)
+        .filter(
+            (model.Post.type == model.Post.TYPE_IMAGE) |
+            (model.Post.type == model.Post.TYPE_ANIMATION))
+        .filter(model.Post.signature == None)
+        .order_by(model.Post.post_id.asc())
+        .all())
+    for post in posts_to_hash:
+        try:
+            generate_post_signature(
+                post, files.get(get_post_content_path(post)))
+            db.session.commit()
+            logger.info('Hashed Post %d', post.post_id)
+        except Exception as ex:
+            logger.exception(ex)
 
 
 def update_post_content(post: model.Post, content: Optional[bytes]) -> None:
     assert post
     if not content:
         raise InvalidPostContentError('Post content missing.')
+
+    update_signature = False
     post.mime_type = mime.get_mime_type(content)
     if mime.is_flash(post.mime_type):
         post.type = model.Post.TYPE_FLASH
     elif mime.is_image(post.mime_type):
+        update_signature = True
         if mime.is_animated_gif(content):
             post.type = model.Post.TYPE_ANIMATION
         else:
@@ -514,18 +576,30 @@ def update_post_content(post: model.Post, content: Optional[bytes]) -> None:
             and other_post.post_id != post.post_id:
         raise PostAlreadyUploadedError(other_post)
 
+    if update_signature:
+        purge_post_signature(post)
+        post.signature = generate_post_signature(post, content)
+
     post.file_size = len(content)
     try:
         image = images.Image(content)
         post.canvas_width = image.width
         post.canvas_height = image.height
     except errors.ProcessingError:
-        post.canvas_width = None
-        post.canvas_height = None
+        if not config.config['allow_broken_uploads']:
+            raise InvalidPostContentError(
+                'Unable to process image metadata')
+        else:
+            post.canvas_width = None
+            post.canvas_height = None
     if (post.canvas_width is not None and post.canvas_width <= 0) \
             or (post.canvas_height is not None and post.canvas_height <= 0):
-        post.canvas_width = None
-        post.canvas_height = None
+        if not config.config['allow_broken_uploads']:
+            raise InvalidPostContentError(
+                'Invalid image dimensions returned during processing')
+        else:
+            post.canvas_width = None
+            post.canvas_height = None
     setattr(post, '__content', content)
 
 
@@ -735,22 +809,25 @@ def merge_posts(
             .values(child_id=target_post_id))
         db.session.execute(update_stmt)
 
-    def transfer_flags(source_post_id: int, target_post_id: int) -> None:
-        target = get_post_by_id(target_post_id)
-        source = get_post_by_id(source_post_id)
-        target.flags = source.flags
-
     merge_tags(source_post.post_id, target_post.post_id)
     merge_comments(source_post.post_id, target_post.post_id)
     merge_scores(source_post.post_id, target_post.post_id)
     merge_favorites(source_post.post_id, target_post.post_id)
     merge_relations(source_post.post_id, target_post.post_id)
 
+    def transfer_flags(source_post_id: int, target_post_id: int) -> None:
+        target = get_post_by_id(target_post_id)
+        source = get_post_by_id(source_post_id)
+        target.flags = source.flags
+        db.session.flush()
+
     content = None
     if replace_content:
         content = files.get(get_post_content_path(source_post))
         transfer_flags(source_post.post_id, target_post.post_id)
 
+    # fixes unknown issue with SA's cascade deletions
+    purge_post_signature(source_post)
     delete(source_post)
     db.session.flush()
 
@@ -767,38 +844,39 @@ def search_by_image_exact(image_content: bytes) -> Optional[model.Post]:
         .one_or_none())
 
 
-def search_by_image(image_content: bytes) -> List[PostLookalike]:
-    ret = []
-    for result in image_hash.search_by_image(image_content):
-        post = try_get_post_by_id(result.path)
-        if post:
-            ret.append(PostLookalike(
-                score=result.score,
-                distance=result.distance,
-                post=post))
-    return ret
+def search_by_image(image_content: bytes) -> List[Tuple[float, model.Post]]:
+    query_signature = image_hash.generate_signature(image_content)
+    query_words = image_hash.generate_words(query_signature)
 
+    '''
+    The unnest function is used here to expand one row containing the 'words'
+    array into multiple rows each containing a singular word.
 
-def populate_reverse_search() -> None:
-    excluded_post_ids = image_hash.get_all_paths()
+    Documentation of the unnest function can be found here:
+    https://www.postgresql.org/docs/9.2/functions-array.html
+    '''
 
-    post_ids_to_hash = (
-        db.session
-        .query(model.Post.post_id)
-        .filter(
-            (model.Post.type == model.Post.TYPE_IMAGE) |
-            (model.Post.type == model.Post.TYPE_ANIMATION))
-        .filter(~model.Post.post_id.in_(excluded_post_ids))
-        .order_by(model.Post.post_id.asc())
-        .all())
+    dbquery = '''
+    SELECT s.post_id, s.signature, count(a.query) AS score
+    FROM post_signature AS s, unnest(s.words, :q) AS a(word, query)
+    WHERE a.word = a.query
+    GROUP BY s.post_id
+    ORDER BY score DESC LIMIT 100;
+    '''
 
-    for post_ids_chunk in util.chunks(post_ids_to_hash, 100):
-        posts_chunk = (
-            db.session
-            .query(model.Post)
-            .filter(model.Post.post_id.in_(post_ids_chunk))
-            .all())
-        for post in posts_chunk:
-            content_path = get_post_content_path(post)
-            if files.has(content_path):
-                image_hash.add_image(post.post_id, files.get(content_path))
+    candidates = db.session.execute(dbquery, {'q': query_words})
+    data = tuple(zip(*[
+        (post_id, image_hash.unpack_signature(packedsig))
+        for post_id, packedsig, score in candidates
+    ]))
+    if data:
+        candidate_post_ids, sigarray = data
+        distances = image_hash.normalized_distance(sigarray, query_signature)
+        return [
+            (distance, try_get_post_by_id(candidate_post_id))
+            for candidate_post_id, distance
+            in zip(candidate_post_ids, distances)
+            if distance < image_hash.DISTANCE_CUTOFF
+        ]
+    else:
+        return []

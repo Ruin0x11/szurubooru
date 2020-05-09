@@ -13,16 +13,17 @@ USER root
 RUN apk --no-cache add \
 		py3-pytest \
 		py3-pytest-cov \
+		postgresql \
 	&& \
 	pip3 install \
 		--no-cache-dir \
 		--disable-pip-version-check \
+		pytest-pgsql \
 		freezegun
 USER app
 ENV POSTGRES_HOST=x \
     POSTGRES_USER=x \
-    POSTGRES_PASSWORD=x \
-    ESEARCH_HOST=x
+    POSTGRES_PASSWORD=x
 CMD ["pytest", "szurubooru/", \
 	"--cov-report=term-missing", "--cov=szurubooru", "--tb=short"]
 EOF

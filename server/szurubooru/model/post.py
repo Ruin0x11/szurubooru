@@ -2,7 +2,10 @@ from typing import List
 import sqlalchemy as sa
 from szurubooru.model.base import Base
 from szurubooru.model.comment import Comment
+from szurubooru.model.pool import PoolPost
+from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.ext.orderinglist import ordering_list
 
 
 class PostFeature(Base):
@@ -143,6 +146,26 @@ class PostTag(Base):
         self.tag_id = tag_id
 
 
+class PostSignature(Base):
+    __tablename__ = 'post_signature'
+
+    post_id = sa.Column(
+        'post_id',
+        sa.Integer,
+        sa.ForeignKey('post.id'),
+        primary_key=True,
+        nullable=False,
+        index=True)
+    signature = sa.Column('signature', sa.LargeBinary, nullable=False)
+    words = sa.Column(
+        'words',
+        sa.dialects.postgresql.ARRAY(sa.Integer, dimensions=1),
+        nullable=False,
+        index=True)
+
+    post = sa.orm.relationship('Post')
+
+
 class Post(Base):
     __tablename__ = 'post'
 
@@ -184,6 +207,11 @@ class Post(Base):
     # foreign tables
     user = sa.orm.relationship('User')
     tags = sa.orm.relationship('Tag', backref='posts', secondary='post_tag')
+    signature = sa.orm.relationship(
+        'PostSignature',
+        uselist=False,
+        cascade='all, delete, delete-orphan',
+        lazy='joined')
     relations = sa.orm.relationship(
         'Post',
         secondary='post_relation',
@@ -199,6 +227,13 @@ class Post(Base):
     notes = sa.orm.relationship(
         'PostNote', cascade='all, delete-orphan', lazy='joined')
     comments = sa.orm.relationship('Comment', cascade='all, delete-orphan')
+    _pools = sa.orm.relationship(
+        'PoolPost',
+        cascade='all,delete-orphan',
+        lazy='select',
+        order_by='PoolPost.order',
+        back_populates='post')
+    pools = association_proxy('_pools', 'pool')
 
     # dynamic columns
     tag_count = sa.orm.column_property(

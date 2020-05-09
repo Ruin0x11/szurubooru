@@ -11,7 +11,9 @@ def inject_config(config_injector):
             'posts:create:anonymous': model.User.RANK_REGULAR,
             'posts:create:identified': model.User.RANK_REGULAR,
             'tags:create': model.User.RANK_REGULAR,
+            'uploads:use_downloader': model.User.RANK_REGULAR,
         },
+        'allow_broken_uploads': False,
     })
 
 
@@ -121,7 +123,10 @@ def test_anonymous_uploads(
             patch('szurubooru.func.posts.create_post'), \
             patch('szurubooru.func.posts.update_post_source'):
         config_injector({
-            'privileges': {'posts:create:anonymous': model.User.RANK_REGULAR},
+            'privileges': {
+                'posts:create:anonymous': model.User.RANK_REGULAR,
+                'uploads:use_downloader': model.User.RANK_POWER,
+            },
         })
         posts.create_post.return_value = [post, []]
         api.post_api.create_post(
@@ -151,7 +156,10 @@ def test_creating_from_url_saves_source(
             patch('szurubooru.func.posts.create_post'), \
             patch('szurubooru.func.posts.update_post_source'):
         config_injector({
-            'privileges': {'posts:create:identified': model.User.RANK_REGULAR},
+            'privileges': {
+                'posts:create:identified': model.User.RANK_REGULAR,
+                'uploads:use_downloader': model.User.RANK_POWER,
+            },
         })
         net.download.return_value = b'content'
         posts.create_post.return_value = [post, []]
@@ -163,7 +171,8 @@ def test_creating_from_url_saves_source(
                     'contentUrl': 'example.com',
                 },
                 user=auth_user))
-        net.download.assert_called_once_with('example.com')
+        net.download.assert_called_once_with(
+            'example.com', use_video_downloader=False)
         posts.create_post.assert_called_once_with(
             b'content', ['tag1', 'tag2'], auth_user)
         posts.update_post_source.assert_called_once_with(post, 'example.com')
@@ -181,7 +190,10 @@ def test_creating_from_url_with_source_specified(
             patch('szurubooru.func.posts.create_post'), \
             patch('szurubooru.func.posts.update_post_source'):
         config_injector({
-            'privileges': {'posts:create:identified': model.User.RANK_REGULAR},
+            'privileges': {
+                'posts:create:identified': model.User.RANK_REGULAR,
+                'uploads:use_downloader': model.User.RANK_REGULAR,
+            },
         })
         net.download.return_value = b'content'
         posts.create_post.return_value = [post, []]
@@ -194,7 +206,8 @@ def test_creating_from_url_with_source_specified(
                     'source': 'example2.com',
                 },
                 user=auth_user))
-        net.download.assert_called_once_with('example.com')
+        net.download.assert_called_once_with(
+            'example.com', use_video_downloader=True)
         posts.create_post.assert_called_once_with(
             b'content', ['tag1', 'tag2'], auth_user)
         posts.update_post_source.assert_called_once_with(post, 'example2.com')
@@ -250,8 +263,7 @@ def test_omitting_optional_field(
 
 
 def test_errors_not_spending_ids(
-        config_injector, tmpdir, context_factory, read_asset, user_factory,
-        skip_post_hashing):
+        config_injector, tmpdir, context_factory, read_asset, user_factory):
     config_injector({
         'data_dir': str(tmpdir.mkdir('data')),
         'data_url': 'example.com',
@@ -261,6 +273,7 @@ def test_errors_not_spending_ids(
         },
         'privileges': {
             'posts:create:identified': model.User.RANK_REGULAR,
+            'uploads:use_downloader': model.User.RANK_POWER,
         },
         'secret': 'test',
     })
@@ -275,7 +288,6 @@ def test_errors_not_spending_ids(
                 params={'safety': 'safe', 'tags': []},
                 files={'content': read_asset('png.png')},
                 user=auth_user))
-    db.session.commit()
 
     # erroreous request (duplicate post)
     with pytest.raises(posts.PostAlreadyUploadedError):
@@ -284,7 +296,6 @@ def test_errors_not_spending_ids(
                 params={'safety': 'safe', 'tags': []},
                 files={'content': read_asset('png.png')},
                 user=auth_user))
-    db.session.rollback()
 
     # successful request
     with patch('szurubooru.func.posts.serialize_post'), \
@@ -327,6 +338,7 @@ def test_trying_to_create_tags_without_privileges(
             'posts:create:anonymous': model.User.RANK_REGULAR,
             'posts:create:identified': model.User.RANK_REGULAR,
             'tags:create': model.User.RANK_ADMINISTRATOR,
+            'uploads:use_downloader': model.User.RANK_POWER,
         },
     })
     with pytest.raises(errors.AuthError), \

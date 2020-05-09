@@ -2,7 +2,8 @@ from typing import Optional, Dict, List
 from datetime import datetime
 from szurubooru import db, model, errors, rest, search
 from szurubooru.func import (
-    auth, tags, posts, snapshots, favorites, scores, serialization, versions)
+    auth, tags, posts, snapshots, favorites, scores,
+    serialization, versions, mime)
 
 
 _search_executor_config = search.configs.PostSearchConfig()
@@ -46,7 +47,10 @@ def create_post(
         auth.verify_privilege(ctx.user, 'posts:create:anonymous')
     else:
         auth.verify_privilege(ctx.user, 'posts:create:identified')
-    content = ctx.get_file('content')
+    content = ctx.get_file(
+        'content',
+        use_video_downloader=auth.has_privilege(
+            ctx.user, 'uploads:use_downloader'))
     tag_names = ctx.get_param_as_string_list('tags', default=[])
     safety = ctx.get_param_as_string('safety')
     source = ctx.get_param_as_string('source', default='')
@@ -54,7 +58,9 @@ def create_post(
         source = ctx.get_param_as_string('contentUrl', default='')
     relations = ctx.get_param_as_int_list('relations', default=[])
     notes = ctx.get_param_as_list('notes', default=[])
-    flags = ctx.get_param_as_string_list('flags', default=[])
+    flags = ctx.get_param_as_string_list(
+        'flags',
+        default=posts.get_default_flags(content))
 
     post, new_tags = posts.create_post(
         content, tag_names, None if anonymous else ctx.user)
@@ -65,7 +71,6 @@ def create_post(
     posts.update_post_relations(post, relations)
     posts.update_post_notes(post, notes)
     posts.update_post_flags(post, flags)
-    posts.test_sound(post, content)
     if ctx.has_file('thumbnail'):
         posts.update_post_thumbnail(post, ctx.get_file('thumbnail'))
     ctx.session.add(post)
@@ -104,7 +109,10 @@ def update_post(ctx: rest.Context, params: Dict[str, str]) -> rest.Response:
     versions.bump_version(post)
     if ctx.has_file('content'):
         auth.verify_privilege(ctx.user, 'posts:edit:content')
-        posts.update_post_content(post, ctx.get_file('content'))
+        posts.update_post_content(
+            post,
+            ctx.get_file('content', use_video_downloader=auth.has_privilege(
+                ctx.user, 'uploads:use_downloader')))
     if ctx.has_param('tags'):
         auth.verify_privilege(ctx.user, 'posts:edit:tags')
         new_tags = posts.update_post_tags(
@@ -262,9 +270,9 @@ def get_posts_by_image(
         'similarPosts':
             [
                 {
-                    'distance': lookalike.distance,
-                    'post': _serialize_post(ctx, lookalike.post),
+                    'distance': distance,
+                    'post': _serialize_post(ctx, post),
                 }
-                for lookalike in lookalikes
+                for distance, post in lookalikes
             ],
     }

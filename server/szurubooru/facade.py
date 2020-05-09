@@ -8,7 +8,8 @@ import coloredlogs
 import sqlalchemy as sa
 import sqlalchemy.orm.exc
 from szurubooru import config, db, errors, rest
-from szurubooru.func import posts, file_uploads, image_hash
+from szurubooru.func.posts import update_all_post_signatures
+from szurubooru.func.file_uploads import purge_old_uploads
 # pylint: disable=unused-import
 from szurubooru import api, middleware
 
@@ -106,10 +107,10 @@ def validate_config() -> None:
                 'From address must be set to use mail-based password reset')
 
 
-def purge_old_uploads() -> None:
+def purge_old_uploads_daemon() -> None:
     while True:
         try:
-            file_uploads.purge_old_uploads()
+            purge_old_uploads()
         except Exception as ex:
             logging.exception(ex)
         time.sleep(60 * 5)
@@ -119,23 +120,20 @@ def create_app() -> Callable[[Any, Any], Any]:
     ''' Create a WSGI compatible App object. '''
     validate_config()
     coloredlogs.install(fmt='[%(asctime)-15s] %(name)s %(message)s')
-    logging.getLogger('elasticsearch').disabled = True
     if config.config['debug']:
         logging.getLogger('szurubooru').setLevel(logging.INFO)
     if config.config['show_sql']:
         logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
-    purge_thread = threading.Thread(target=purge_old_uploads)
+    purge_thread = threading.Thread(target=purge_old_uploads_daemon)
     purge_thread.daemon = True
     purge_thread.start()
 
-    try:
-        image_hash.get_session().cluster.health(
-            wait_for_status='yellow', request_timeout=120)
-        posts.populate_reverse_search()
-        db.session.commit()
-    except errors.ThirdPartyError:
-        pass
+    hashing_thread = threading.Thread(target=update_all_post_signatures)
+    hashing_thread.daemon = False
+    hashing_thread.start()
+
+    db.session.commit()
 
     rest.errors.handle(errors.AuthError, _on_auth_error)
     rest.errors.handle(errors.ValidationError, _on_validation_error)

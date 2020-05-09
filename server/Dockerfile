@@ -21,8 +21,7 @@ RUN \
     pip3 install --no-cache-dir --disable-pip-version-check \
         alembic \
         "coloredlogs==5.0" \
-        "elasticsearch>=5.0.0,<7.0.0" \
-        "elasticsearch-dsl>=5.0.0,<7.0.0" \
+        youtube-dl \
     && exit 0
 
 ARG PUID=1000

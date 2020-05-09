@@ -13,10 +13,9 @@ services:
       - elasticsearch
     restart: always
     environment:
-      ## These should be the names of the dependent containers listed above,
+      ## These should be the names of the dependent containers listed below,
       ## or FQDNs/IP addresses if these services are running outside of Docker
       POSTGRES_HOST: sql
-      ESEARCH_HOST: elasticsearch
       ## Credentials for database:
       POSTGRES_USER: miyako
       POSTGRES_PASSWORD: asumiisu
@@ -35,6 +34,7 @@ services:
       - "./server/config.yaml:/opt/app/config.yaml"
     networks:
       - szuru
+
   client:
     build:
       context: ./client
@@ -54,6 +54,9 @@ services:
     networks:
       - misaka
       - szuru
+    ports:
+      - "${PORT}:80"
+
   sql:
     image: postgres:11-alpine
     restart: always

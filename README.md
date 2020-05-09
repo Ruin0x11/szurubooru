@@ -8,6 +8,7 @@ scrubbing](http://sjp.pwn.pl/sjp/;2527372). It is pronounced as *shoorubooru*.
 ## Features
 
 - Post content: images (JPG, PNG, GIF, animated GIF), videos (MP4, WEBM), Flash animations
+- Ability to retrieve web video content using [youtube-dl](https://github.com/ytdl-org/youtube-dl)
 - Post comments
 - Post notes / annotations, including arbitrary polygons
 - Rich JSON REST API ([see documentation](doc/API.md))
@@ -19,6 +20,7 @@ scrubbing](http://sjp.pwn.pl/sjp/;2527372). It is pronounced as *shoorubooru*.
 - Tag suggestions
 - Tag implications (adding a tag automatically adds another)
 - Tag aliases
+- Pools and pool categories
 - Duplicate detection
 - Post rating and favoriting; comment rating
 - Polished UI
