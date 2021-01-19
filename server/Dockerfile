@@ -16,10 +16,10 @@ RUN \
         py3-pillow \
         py3-pynacl \
         py3-tz \
-        py3-pyrfc3339 \
     && \
     pip3 install --no-cache-dir --disable-pip-version-check \
         alembic \
+        pyrfc3339 \
         "coloredlogs==5.0" \
         youtube-dl \
     && exit 0

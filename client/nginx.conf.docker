@@ -42,7 +42,7 @@ http {
                 return 200;
             }
 
-            client_max_body_size 0;
+            client_max_body_size 100M;
 
             gzip on;
             gzip_comp_level 3;

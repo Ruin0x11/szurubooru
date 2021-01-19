@@ -22,8 +22,9 @@ services:
       ## Commented Values are Default:
       #POSTGRES_DB: defaults to same as POSTGRES_USER
       #POSTGRES_PORT: 5432
-      #ESEARCH_PORT: 9200
-      #ESEARCH_INDEX: szurubooru
+      ESEARCH_PORT: 9200
+      ESEARCH_INDEX: szurubooru
+      ESEARCH_HOST: elasticsearch
       #LOG_SQL: 0 (1 for verbose SQL logs)
     ports:
         - "6666:6666"
@@ -86,8 +87,10 @@ services:
         hard: 65536
     networks:
       - szuru
+
   evergarden:
-    image: localhost:5000/evergarden
+    build:
+      context: /home/ruin/build/work/evergarden
     depends_on:
       - api
     restart: always
@@ -96,8 +99,10 @@ services:
     environment:
       SZURUBOORU_HOST: http://client
       EXTERNAL_SZURUBOORU_HOST: http://bijutsu.nori.moe
-      VIRTUAL_HOST: evergarden.nori.daikon
+      VIRTUAL_HOST: evergarden.nori.moe
       VIRTUAL_PORT: 5000
+      LETSENCRYPT_HOST: evergarden.nori.moe
+      # NETWORK_ACCESS: internal
     networks:
       - misaka
       - szuru
