@@ -1,9 +1,11 @@
+"use strict";
+
 const direction = {
     NONE: null,
-    LEFT: 'left',
-    RIGHT: 'right',
-    DOWN: 'down',
-    UP: 'up'
+    LEFT: "left",
+    RIGHT: "right",
+    DOWN: "down",
+    UP: "up",
 };
 
 function handleTouchStart(handler, evt) {
@@ -26,12 +28,10 @@ function handleTouchMove(handler, evt) {
         } else {
             handler._direction = direction.RIGHT;
         }
+    } else if (yDirection > 0) {
+        handler._direction = direction.DOWN;
     } else {
-        if (yDirection > 0) {
-            handler._direction = direction.DOWN;
-        } else {
-            handler._direction = direction.UP;
-        }
+        handler._direction = direction.UP;
     }
 }
 
@@ -50,6 +50,7 @@ function handleTouchEnd(handler) {
             break;
         case direction.UP:
             handler._swipeUpTask();
+        // no default
     }
 
     handler._xStart = null;
@@ -57,11 +58,13 @@ function handleTouchEnd(handler) {
 }
 
 class Touch {
-    constructor(target,
-                swipeLeft = () => {},
-                swipeRight = () => {},
-                swipeUp = () => {},
-                swipeDown = () => {}) {
+    constructor(
+        target,
+        swipeLeft = () => {},
+        swipeRight = () => {},
+        swipeUp = () => {},
+        swipeDown = () => {}
+    ) {
         this._target = target;
 
         this._swipeLeftTask = swipeLeft;
@@ -73,12 +76,15 @@ class Touch {
         this._yStart = null;
         this._direction = direction.NONE;
 
-        this._target.addEventListener('touchstart',
-            (evt) => { handleTouchStart(this, evt); });
-        this._target.addEventListener('touchmove',
-            (evt) => { handleTouchMove(this, evt); });
-        this._target.addEventListener('touchend',
-            () => { handleTouchEnd(this); });
+        this._target.addEventListener("touchstart", (evt) => {
+            handleTouchStart(this, evt);
+        });
+        this._target.addEventListener("touchmove", (evt) => {
+            handleTouchMove(this, evt);
+        });
+        this._target.addEventListener("touchend", () => {
+            handleTouchEnd(this);
+        });
     }
 }
 

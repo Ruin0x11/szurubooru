@@ -13,6 +13,7 @@
    - [Error handling](#error-handling)
    - [Field selecting](#field-selecting)
    - [Versioning](#versioning)
+   - [Webhooks](#webhooks)
 
 2. [API reference](#api-reference)
 
@@ -98,6 +99,7 @@
    - [Micro post](#micro-post)
    - [Pool category](#pool-category)
    - [Pool](#pool)
+   - [Micro pool](#micro-pool)
    - [Note](#note)
    - [Comment](#comment)
    - [Snapshot](#snapshot)
@@ -276,6 +278,15 @@ reject the request as well, in which case the client is encouraged to notify
 the user about the situation.
 
 
+## Webhooks
+
+System administrators can choose to configure webhooks to track events.
+Webhook URIs can be configured in `config.yaml` (See `config.yaml.dist` for
+example). Upon any event, the API will send a `POST` request to the listed
+URIs with a [snapshot resource](#snapshot) generated with anonymous user
+privileges as the message body, in JSON format.
+
+
 # API reference
 
 Depending on the deployment, the URLs might be relative to some base path such
@@ -310,7 +321,8 @@ data.
     ```json5
     {
         "name":  <name>,
-        "color": <color>
+        "color": <color>,
+        "order": <order>  // optional
     }
     ```
 
@@ -343,6 +355,7 @@ data.
         "version": <version>,
         "name":    <name>,    // optional
         "color":   <color>,   // optional
+        "order":   <order>    // optional
     }
     ```
 
@@ -2277,7 +2290,8 @@ experience.
     "version": <version>,
     "name":    <name>,
     "color":   <color>,
-    "usages":  <usages>
+    "usages":  <usages>,
+    "order":   <order>,
     "default": <is-default>
 }
 ```
@@ -2288,6 +2302,7 @@ experience.
 - `<name>`: the category name.
 - `<color>`: the category color.
 - `<usages>`: how many tags is the given category used with.
+- `<order>`: the order in which tags with this category are displayed, ascending.
 - `<is-default>`: whether the tag category is the default one.
 
 ## Tag
@@ -2351,6 +2366,7 @@ One file together with its metadata posted to the site.
     "source":             <source>,
     "type":               <type>,
     "checksum":           <checksum>,
+    "checksumMD5":        <checksum-MD5>,
     "canvasWidth":        <canvas-width>,
     "canvasHeight":       <canvas-height>,
     "contentUrl":         <content-url>,
@@ -2377,6 +2393,11 @@ One file together with its metadata posted to the site.
         <comment>,
         <comment>,
         <comment>
+    ],
+    "pools": [
+        <pool>,
+        <pool>,
+        <pool>
     ]
 }
 ```
@@ -2406,8 +2427,9 @@ One file together with its metadata posted to the site.
     - `"flash"` - Flash animation / game.
     - `"youtube"` - Youtube embed.
 
-- `<checksum>`: the file checksum. Used in snapshots to signify changes of the
+- `<checksum>`: the SHA1 file checksum. Used in snapshots to signify changes of the
   post content.
+- `<checksum-MD5>`: the MD5 file checksum.
 - `<canvas-width>` and `<canvas-height>`: the original width and height of the
   post content.
 - `<content-url>`: where the post content is located.
@@ -2440,6 +2462,7 @@ One file together with its metadata posted to the site.
 - `<mime-type>`: subsidiary to `<type>`, used to tell exact content format;
   useful for `<video>` tags for instance.
 - `<comment>`: a [comment resource](#comment) for given post.
+- `<pool>`: a [micro pool resource](#micro-pool) in which the post is a member of.
 
 ## Micro post
 **Description**
@@ -2481,7 +2504,7 @@ experience.
     "version": <version>,
     "name":    <name>,
     "color":   <color>,
-    "usages":  <usages>
+    "usages":  <usages>,
     "default": <is-default>
 }
 ```
@@ -2504,7 +2527,7 @@ An ordered list of posts, with a description and category.
 ```json5
 {
     "version":      <version>,
-    "id":           <id>
+    "id":           <id>,
     "names":        <names>,
     "category":     <category>,
     "posts":        <suggestions>,
@@ -2529,6 +2552,12 @@ An ordered list of posts, with a description and category.
 - `<description>`: the pool description (instructions how to use, history etc.)
   The client should render it as Markdown.
 
+## Micro pool
+**Description**
+
+A [pool resource](#pool) stripped down to `id`, `names`, `category`,
+`description` and `postCount` fields.
+
 ## Comment
 **Description**
 
@@ -2541,7 +2570,7 @@ A comment under a post.
     "version":      <version>,
     "id":           <id>,
     "postId":       <post-id>,
-    "user":         <author>
+    "user":         <author>,
     "text":         <text>,
     "creationTime": <creation-time>,
     "lastEditTime": <last-edit-time>,
@@ -2689,7 +2718,7 @@ dictionaries as created by creation snapshots, which is described below.
         },
         "primitive-property":
         {
-            "type": "primitive change":
+            "type": "primitive change",
             "old-value": "<primitive>",
             "new-value": "<primitive>"
         },

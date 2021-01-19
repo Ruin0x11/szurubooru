@@ -1,12 +1,11 @@
-'use strict';
+"use strict";
 
-const events = require('../events.js');
-const api = require('../api.js');
-const views = require('../util/views.js');
-const PoolAutoCompleteControl =
-    require('../controls/pool_auto_complete_control.js');
+const events = require("../events.js");
+const api = require("../api.js");
+const views = require("../util/views.js");
+const PoolAutoCompleteControl = require("../controls/pool_auto_complete_control.js");
 
-const template = views.getTemplate('pool-merge');
+const template = views.getTemplate("pool-merge");
 
 class PoolMergeView extends events.EventTarget {
     constructor(ctx) {
@@ -14,7 +13,7 @@ class PoolMergeView extends events.EventTarget {
 
         this._pool = ctx.pool;
         this._hostNode = ctx.hostNode;
-        this._target_pool_id = null;
+        this._targetPoolId = null;
         ctx.poolNamePattern = api.getPoolNameRegex();
         views.replaceContent(this._hostNode, template(ctx));
 
@@ -23,15 +22,18 @@ class PoolMergeView extends events.EventTarget {
             this._autoCompleteControl = new PoolAutoCompleteControl(
                 this._targetPoolFieldNode,
                 {
-                    confirm: pool => {
-                        this._target_pool_id = pool.id;
+                    confirm: (pool) => {
+                        this._targetPoolId = pool.id;
                         this._autoCompleteControl.replaceSelectedText(
-                            pool.names[0], false);
-                    }
-                });
+                            pool.names[0],
+                            false
+                        );
+                    },
+                }
+            );
         }
 
-        this._formNode.addEventListener('submit', e => this._evtSubmit(e));
+        this._formNode.addEventListener("submit", (e) => this._evtSubmit(e));
     }
 
     clearMessages() {
@@ -56,24 +58,26 @@ class PoolMergeView extends events.EventTarget {
 
     _evtSubmit(e) {
         e.preventDefault();
-        this.dispatchEvent(new CustomEvent('submit', {
-            detail: {
-                pool: this._pool,
-                targetPoolId: this._target_pool_id
-            },
-        }));
+        this.dispatchEvent(
+            new CustomEvent("submit", {
+                detail: {
+                    pool: this._pool,
+                    targetPoolId: this._targetPoolId,
+                },
+            })
+        );
     }
 
     get _formNode() {
-        return this._hostNode.querySelector('form');
+        return this._hostNode.querySelector("form");
     }
 
     get _targetPoolFieldNode() {
-        return this._formNode.querySelector('input[name=target-pool]');
+        return this._formNode.querySelector("input[name=target-pool]");
     }
 
     get _addAliasCheckboxNode() {
-        return this._formNode.querySelector('input[name=alias]');
+        return this._formNode.querySelector("input[name=alias]");
     }
 }
 

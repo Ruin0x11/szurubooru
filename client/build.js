@@ -21,11 +21,13 @@ const webapp_splash_screens = [
 ];
 
 const external_js = [
-    'underscore',
-    'superagent',
-    'mousetrap',
+    'dompurify',
     'js-cookie',
+    'marked',
+    'mousetrap',
     'nprogress',
+    'superagent',
+    'underscore',
 ];
 
 const app_manifest = {
@@ -225,7 +227,6 @@ function bundleConfig() {
 
 function bundleBinaryAssets() {
     fs.copyFileSync('./img/favicon.png', './public/img/favicon.png');
-    fs.copyFileSync('./img/transparency_grid.png', './public/img/transparency_grid.png');
     console.info('Copied images');
 
     fs.copyFileSync('./fonts/open_sans.woff2', './public/fonts/open_sans.woff2')

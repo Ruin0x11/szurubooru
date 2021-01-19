@@ -24,11 +24,11 @@
         </tr>
         <tr>
             <td><code>upload</code></td>
-            <td>alias of <code>upload</code></td>
+            <td>alias of <code>uploader</code></td>
         </tr>
         <tr>
             <td><code>submit</code></td>
-            <td>alias of <code>upload</code></td>
+            <td>alias of <code>uploader</code></td>
         </tr>
         <tr>
             <td><code>comment</code></td>
@@ -83,8 +83,16 @@
             <td>having given flag. <code>&lt;value&gt;</code> can be either <code>loop</code> or <code>sound</code>.</td>
         </tr>
         <tr>
-            <td><code>content-checksum</code></td>
+            <td><code>sha1</code></td>
             <td>having given SHA1 checksum</td>
+        </tr>
+        <tr>
+            <td><code>md5</code></td>
+            <td>having given MD5 checksum</td>
+        </tr>
+        <tr>
+            <td><code>content-checksum</code></td>
+            <td>alias of <code>sha1</code></td>
         </tr>
         <tr>
             <td><code>file-size</code></td>
