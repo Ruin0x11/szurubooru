@@ -221,14 +221,7 @@ class Post extends events.EventTarget {
         }
 
         for (let pool of removed) {
-            let op = Pool.get(pool.id).then((response) => {
-                if (response.posts.hasPostId(this._id)) {
-                    response.posts.removeById(this._id);
-                    return response.save();
-                } else {
-                    return Promise.resolve(response);
-                }
-            });
+            let op = Pool.removePost(pool.id, this._id);
             ops.push(op);
         }
 

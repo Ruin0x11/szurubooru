@@ -115,6 +115,13 @@ class Pool extends events.EventTarget {
         });
     }
 
+    static removePost(poolId, postId) {
+        const detail = { postId: postId }
+        return api.post(uri.formatApiLink("pool-remove-post", poolId), detail).then((response) => {
+            return Promise.resolve(response);
+        });
+    }
+
     merge(targetId, addAlias) {
         return api
             .get(uri.formatApiLink("pool", targetId))

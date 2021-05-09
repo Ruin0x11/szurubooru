@@ -226,7 +226,7 @@ def test_trying_to_add_post_to_pool_without_privileges(
 ):
     pool = pool_factory(id=1)
     post = post_factory(id=1)
-    db.session.add(pool, post)
+    db.session.add_all([pool, post])
     db.session.commit()
     with patch("szurubooru.func.posts.get_post_by_id"), patch(
             "szurubooru.func.pools.add_post_to_pool"
@@ -250,9 +250,7 @@ def test_trying_to_add_post_to_pool_twice(user_factory, pool_factory, post_facto
     pool = pool_factory(id=1, names=["pool1", "pool2"])
     post = post_factory(id=1)
     pool_post = pool_post_factory(pool=pool, post=post, order=1)
-    db.session.add(pool)
-    db.session.add(post)
-    db.session.add(pool_post)
+    db.session.add_all([pool, post, pool_post])
     db.session.commit()
     with patch("szurubooru.func.pools.serialize_pool_post"):
         pools.serialize_pool_post.return_value = "serialized pool post"
@@ -264,3 +262,93 @@ def test_trying_to_add_post_to_pool_twice(user_factory, pool_factory, post_facto
                 ),
                 {"pool_id": 1},
             )
+
+
+def test_remove_post_from_pool(user_factory, pool_factory, post_factory, pool_post_factory, context_factory):
+    auth_user = user_factory(rank=model.User.RANK_REGULAR)
+    pool = pool_factory(id=1, names=["pool1", "pool2"])
+    post = post_factory(id=1)
+    pool_post = pool_post_factory(pool=pool, post=post, order=0)
+    db.session.add_all([pool, post, pool_post])
+    db.session.commit()
+    with patch("szurubooru.func.pools.create_pool"), patch(
+        "szurubooru.func.posts.get_post_by_id"
+    ), patch(
+        "szurubooru.func.pools.update_pool_posts"
+    ), patch(
+        "szurubooru.func.snapshots.modify"
+    ):
+        posts.get_post_by_id.return_value = []
+        assert pools.get_pool_post_count() == 1
+        api.pool_api.remove_post_from_pool(
+            context_factory(
+                params={
+                    "postId": 1
+                },
+                user=auth_user,
+            ),
+            {"pool_id": 1},
+        )
+        pools.create_pool.assert_not_called()
+        pools.update_pool_posts.assert_not_called()
+        snapshots.modify.assert_not_called()
+        db.session.flush()
+        assert pools.get_pool_post_count() == 0
+
+def test_trying_to_remove_post_from_pool_non_existing(user_factory, post_factory, context_factory):
+    post = post_factory(id=1)
+    db.session.add(post)
+    with pytest.raises(pools.PoolNotFoundError):
+        api.pool_api.remove_post_from_pool(
+            context_factory(
+                params={"postId": 1},
+                user=user_factory(rank=model.User.RANK_REGULAR),
+            ),
+            {"pool_id": 1},
+        )
+
+def test_trying_to_remove_post_from_pool_non_existing_post(user_factory, pool_factory, context_factory):
+    pool = pool_factory(id=1)
+    db.session.add(pool)
+    with pytest.raises(posts.PostNotFoundError):
+        api.pool_api.remove_post_from_pool(
+            context_factory(
+                params={"postId": 1},
+                user=user_factory(rank=model.User.RANK_REGULAR),
+            ),
+            {"pool_id": 1},
+        )
+
+def test_trying_to_remove_post_from_pool_without_privileges(
+    user_factory, pool_factory, post_factory, pool_post_factory, context_factory
+):
+    pool = pool_factory(id=1)
+    post = post_factory(id=1)
+    pool_post = pool_post_factory(pool=pool, post=post, order=0)
+    db.session.add_all([pool, post])
+    db.session.commit()
+    with patch("szurubooru.func.posts.get_post_by_id"), patch(
+            "szurubooru.func.pools.remove_post_from_pool"
+    ):
+        pools.remove_post_from_pool.return_value = []
+        with pytest.raises(errors.AuthError):
+            api.pool_api.remove_post_from_pool(
+                context_factory(
+                    params={"postId": 1},
+                    user=user_factory(rank=model.User.RANK_ANONYMOUS),
+                ),
+                {"pool_id": 1},
+            )
+
+def test_trying_to_remove_post_from_pool_not_in_pool(user_factory, pool_factory, post_factory, context_factory):
+    pool = pool_factory(id=1)
+    post = post_factory(id=1)
+    db.session.add_all([pool, post])
+    with pytest.raises(pools.PoolPostNotFoundError):
+        api.pool_api.remove_post_from_pool(
+            context_factory(
+                params={"postId": 1},
+                user=user_factory(rank=model.User.RANK_REGULAR),
+            ),
+            {"pool_id": 1},
+        )

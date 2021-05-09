@@ -94,6 +94,16 @@ def add_post_to_pool(ctx: rest.Context, params: Dict[str, str]) -> rest.Response
     return pools.serialize_pool_post(pool_post)
 
 
+@rest.routes.post("/pool-remove-post/(?P<pool_id>[^/]+)/?")
+def remove_post_from_pool(ctx: rest.Context, params: Dict[str, str]) -> rest.Response:
+    auth.verify_privilege(ctx.user, "pools:edit:posts")
+    pool_id = int(params["pool_id"])
+    post_id = ctx.get_param_as_int("postId")
+    pool_post = pools.remove_post_from_pool(pool_id, post_id)
+    ctx.session.commit()
+    return {}
+
+
 @rest.routes.delete("/pool/(?P<pool_id>[^/]+)/?")
 def delete_pool(ctx: rest.Context, params: Dict[str, str]) -> rest.Response:
     pool = _get_pool(params)

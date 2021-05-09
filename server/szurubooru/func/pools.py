@@ -20,6 +20,10 @@ class PoolIsInUseError(errors.ValidationError):
     pass
 
 
+class PoolPostNotFoundError(errors.ValidationError):
+    pass
+
+
 class InvalidPoolNameError(errors.ValidationError):
     pass
 
@@ -210,6 +214,10 @@ def get_pools_by_names(names: List[str]) -> List[model.Pool]:
     )
 
 
+def get_pool_post_count() -> int:
+    return db.session.query(sa.func.count(model.PoolPost.post_id)).one()[0]
+
+
 def get_or_create_pools_by_names(
     names: List[str],
 ) -> Tuple[List[model.Pool], List[model.Pool]]:
@@ -370,3 +378,20 @@ def add_post_to_pool(pool_id: int, post_id: int) -> model.PoolPost:
 
     db.session.add(pool_post)
     return pool_post
+
+
+def remove_post_from_pool(pool_id: int, post_id: int) -> None:
+    assert pool_id
+    assert post_id
+    pool = get_pool_by_id(pool_id)
+    post = posts.get_post_by_id(post_id)
+
+    pool_post = db.session.query(model.PoolPost) \
+                     .filter(model.PoolPost.pool_id == pool_id) \
+                     .filter(model.PoolPost.post_id == post_id) \
+                     .limit(1) \
+                     .one_or_none()
+    if pool_post is None:
+        raise PoolPostNotFoundError("Post is not in pool: " + str(post_id))
+
+    db.session.delete(pool_post)
