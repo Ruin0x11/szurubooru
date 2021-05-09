@@ -216,14 +216,7 @@ class Post extends events.EventTarget {
 
         // update each pool's list of posts
         for (let pool of added) {
-            let op = Pool.get(pool.id).then((response) => {
-                if (!response.posts.hasPostId(this._id)) {
-                    response.posts.addById(this._id);
-                    return response.save();
-                } else {
-                    return Promise.resolve(response);
-                }
-            });
+            let op = Pool.addPost(pool.id, this._id);
             ops.push(op);
         }
 

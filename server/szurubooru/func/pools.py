@@ -158,6 +158,10 @@ def serialize_micro_pool(pool: model.Pool) -> Optional[rest.Response]:
     )
 
 
+def serialize_pool_post(pool_post: model.PoolPost) -> Optional[rest.Response]:
+    return { "order": pool_post.order, "poolId": pool_post.pool_id, "postId": pool_post.post_id }
+
+
 def try_get_pool_by_id(pool_id: int) -> Optional[model.Pool]:
     return (
         db.session.query(model.Pool)
@@ -335,3 +339,34 @@ def update_pool_posts(pool: model.Pool, post_ids: List[int]) -> None:
     pool.posts.clear()
     for post in ret:
         pool.posts.append(post)
+
+
+def add_post_to_pool(pool_id: int, post_id: int) -> model.PoolPost:
+    assert pool_id
+    assert post_id
+    pool = get_pool_by_id(pool_id)
+    post = posts.get_post_by_id(post_id)
+
+    existing = db.session.query(model.PoolPost) \
+                     .filter(model.PoolPost.pool_id == pool_id) \
+                     .filter(model.PoolPost.post_id == post_id) \
+                     .limit(1) \
+                     .one_or_none()
+    if existing is not None:
+        raise InvalidPoolDuplicateError("Duplicate post in pool: " + str(post_id))
+
+    last = db.session.query(model.PoolPost) \
+                     .filter(model.PoolPost.pool_id == pool_id) \
+                     .order_by(model.PoolPost.order.desc()) \
+                     .limit(1) \
+                     .one_or_none()
+    order = 0
+    if last is not None:
+        order = last.order + 1
+
+    pool_post = model.PoolPost(post)
+    pool_post.pool_id = pool_id
+    pool_post.order = order
+
+    db.session.add(pool_post)
+    return pool_post

@@ -108,6 +108,13 @@ class Pool extends events.EventTarget {
         });
     }
 
+    static addPost(poolId, postId) {
+        const detail = { postId: postId }
+        return api.post(uri.formatApiLink("pool-add-post", poolId), detail).then((response) => {
+            return Promise.resolve(response);
+        });
+    }
+
     merge(targetId, addAlias) {
         return api
             .get(uri.formatApiLink("pool", targetId))

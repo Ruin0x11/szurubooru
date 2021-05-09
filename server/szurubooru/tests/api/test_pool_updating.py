@@ -158,3 +158,109 @@ def test_trying_to_create_pools_without_privileges(
                 ),
                 {"pool_id": 1},
             )
+
+
+def test_add_post_to_pool(user_factory, pool_factory, context_factory):
+    auth_user = user_factory(rank=model.User.RANK_REGULAR)
+    pool = pool_factory(id=1, names=["pool1", "pool2"])
+    db.session.add(pool)
+    db.session.commit()
+    with patch("szurubooru.func.pools.create_pool"), patch(
+        "szurubooru.func.posts.get_post_by_id"
+    ), patch(
+        "szurubooru.func.pools.add_post_to_pool"
+    ), patch(
+        "szurubooru.func.pools.serialize_pool_post"
+    ), patch(
+        "szurubooru.func.pools.update_pool_posts"
+    ), patch(
+        "szurubooru.func.pools.serialize_pool"
+    ), patch(
+        "szurubooru.func.snapshots.modify"
+    ):
+        pools.serialize_pool_post.return_value = "serialized pool post"
+        posts.get_post_by_id.return_value = []
+        result = api.pool_api.add_post_to_pool(
+            context_factory(
+                params={
+                    "postId": 1
+                },
+                user=auth_user,
+            ),
+            {"pool_id": 1},
+        )
+        assert result == "serialized pool post"
+        pools.create_pool.assert_not_called()
+        pools.update_pool_posts.assert_not_called()
+        pools.add_post_to_pool.assert_called_once_with(1, 1)
+        pools.serialize_pool.assert_not_called()
+        pools.serialize_pool_post.assert_called_once()
+        snapshots.modify.assert_not_called()
+
+def test_trying_to_add_post_to_pool_non_existing(user_factory, post_factory, context_factory):
+    post = post_factory(id=1)
+    db.session.add(post)
+    with pytest.raises(pools.PoolNotFoundError):
+        api.pool_api.add_post_to_pool(
+            context_factory(
+                params={"postId": 1},
+                user=user_factory(rank=model.User.RANK_REGULAR),
+            ),
+            {"pool_id": 1},
+        )
+
+def test_trying_to_add_post_to_pool_non_existing_post(user_factory, pool_factory, context_factory):
+    pool = pool_factory(id=1)
+    db.session.add(pool)
+    with pytest.raises(posts.PostNotFoundError):
+        api.pool_api.add_post_to_pool(
+            context_factory(
+                params={"postId": 1},
+                user=user_factory(rank=model.User.RANK_REGULAR),
+            ),
+            {"pool_id": 1},
+        )
+
+def test_trying_to_add_post_to_pool_without_privileges(
+    user_factory, pool_factory, post_factory, context_factory
+):
+    pool = pool_factory(id=1)
+    post = post_factory(id=1)
+    db.session.add(pool, post)
+    db.session.commit()
+    with patch("szurubooru.func.posts.get_post_by_id"), patch(
+            "szurubooru.func.pools.add_post_to_pool"
+    ), patch(
+            "szurubooru.func.pools.serialize_pool_post"
+    ):
+        pools.add_post_to_pool.return_value = []
+        pools.serialize_pool_post.return_value = "serialized pool post"
+        with pytest.raises(errors.AuthError):
+            api.pool_api.add_post_to_pool(
+                context_factory(
+                    params={"postId": 1},
+                    user=user_factory(rank=model.User.RANK_ANONYMOUS),
+                ),
+                {"pool_id": 1},
+            )
+
+
+def test_trying_to_add_post_to_pool_twice(user_factory, pool_factory, post_factory, pool_post_factory, context_factory):
+    auth_user = user_factory(rank=model.User.RANK_REGULAR)
+    pool = pool_factory(id=1, names=["pool1", "pool2"])
+    post = post_factory(id=1)
+    pool_post = pool_post_factory(pool=pool, post=post, order=1)
+    db.session.add(pool)
+    db.session.add(post)
+    db.session.add(pool_post)
+    db.session.commit()
+    with patch("szurubooru.func.pools.serialize_pool_post"):
+        pools.serialize_pool_post.return_value = "serialized pool post"
+        with pytest.raises(pools.InvalidPoolDuplicateError):
+            api.pool_api.add_post_to_pool(
+                context_factory(
+                    params={"postId": 1},
+                    user=auth_user,
+                ),
+                {"pool_id": 1},
+            )
