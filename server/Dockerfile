@@ -27,6 +27,7 @@ RUN apk --no-cache add \
         libavif-dev \
  && pip3 install --no-cache-dir --disable-pip-version-check \
         alembic \
+        alembic_utils \
         "coloredlogs==5.0" \
         youtube_dl \
         pillow-avif-plugin \
