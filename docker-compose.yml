@@ -5,43 +5,113 @@
 version: '2'
 
 services:
-
-  server:
-    build: ./server
+  api:
+    build:
+      context: ./server
     depends_on:
       - sql
+      - elasticsearch
+    restart: always
     environment:
       ## These should be the names of the dependent containers listed below,
       ## or FQDNs/IP addresses if these services are running outside of Docker
       POSTGRES_HOST: sql
       ## Credentials for database:
-      POSTGRES_USER:
-      POSTGRES_PASSWORD:
+      POSTGRES_USER: miyako
+      POSTGRES_PASSWORD: asumiisu
       ## Commented Values are Default:
       #POSTGRES_DB: defaults to same as POSTGRES_USER
       #POSTGRES_PORT: 5432
+      ESEARCH_PORT: 9200
+      ESEARCH_INDEX: szurubooru
+      ESEARCH_HOST: elasticsearch
       #LOG_SQL: 0 (1 for verbose SQL logs)
+    ports:
+        - "6666:6666"
+    expose:
+        - "6666"
     volumes:
-      - "${MOUNT_DATA}:/data"
+      - "/mnt/hibiki/config/szurubooru/data:/data"
       - "./server/config.yaml:/opt/app/config.yaml"
+    networks:
+      - szuru
 
   client:
-    build: ./client
+    build:
+      context: ./client
+      args:
+        BUILD_INFO:
     depends_on:
-      - server
+      - api
+    restart: always
     environment:
-      BACKEND_HOST: server
+      BACKEND_HOST: api
       BASE_URL:
+      # VIRTUAL_HOST: bijutsu.nori.daikon
+      VIRTUAL_HOST: bijutsu.nori.moe
+      LETSENCRYPT_HOST: bijutsu.nori.moe
     volumes:
-      - "${MOUNT_DATA}:/data:ro"
+      - "/mnt/hibiki/config/szurubooru/data:/data:ro"
+    networks:
+      - misaka
+      - szuru
     ports:
       - "${PORT}:80"
 
   sql:
     image: postgres:11-alpine
-    restart: unless-stopped
+    restart: always
     environment:
-      POSTGRES_USER:
-      POSTGRES_PASSWORD:
+      POSTGRES_USER: miyako
+      POSTGRES_PASSWORD: asumiisu
     volumes:
-      - "${MOUNT_SQL}:/var/lib/postgresql/data"
+      - "/mnt/hibiki/config/szurubooru/sql:/var/lib/postgresql/data"
+    networks:
+      - szuru
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.3.1
+    restart: always
+    environment:
+      ## Specifies the Java heap size used
+      ## Read
+      ##  https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html
+      ## for more info
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+        - "5008:5000"
+    volumes:
+      - index:/usr/share/elasticsearch/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - szuru
+
+  evergarden:
+    build:
+      context: /home/nori/build/work/evergarden
+    depends_on:
+      - api
+    restart: always
+    expose:
+        - "5000"
+    environment:
+      SZURUBOORU_HOST: http://client
+      EXTERNAL_SZURUBOORU_HOST: http://bijutsu.nori.moe
+      VIRTUAL_HOST: evergarden.nori.moe
+      VIRTUAL_PORT: 5000
+      LETSENCRYPT_HOST: evergarden.nori.moe
+      # NETWORK_ACCESS: internal
+    networks:
+      - misaka
+      - szuru
+
+volumes:
+  index: # Scratch space for ElasticSearch index, will be rebuilt if lost
+
+networks:
+  misaka:
+    external: true
+  szuru:
+    driver: bridge
